@@ -1,0 +1,55 @@
+# This is a basic workflow to help you get started with Actions
+
+name: CI for Apache SpamAssassin
+
+# Controls when the workflow will run
+on:
+  # Triggers the workflow on push or pull request events but only for the master branch
+  push:
+    branches: [ tests ]
+
+  # Allows you to run this workflow manually from the Actions tab
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  # This workflow contains a single job called "build"
+  build:
+    # The type of runner that the job will run on
+    strategy:
+      matrix:
+        platform: [ubuntu-latest]
+    env:
+      # some plugins still needs this to run their tests...
+      PERL_USE_UNSAFE_INC: 0
+      AUTHOR_TESTING: 1
+      AUTOMATED_TESTING: 1
+      RELEASE_TESTING: 1
+      DEBIAN_FRONTEND: noninteractive
+    runs-on: ${{ matrix.platform }}
+    # container: ubuntu:latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      - name: Install Perl modules
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install perl libssl-dev libmail-spf-perl libmail-dkim-perl libio-socket-ssl-perl libio-stringy-perl libmailtools-perl libmime-tools-perl libnet-smtp-ssl-perl libnet-ssleay-perl libtimedate-perl libunix-syslog-perl libhtml-parser-perl libarchive-zip-perl libtest-class-most-perl libio-string-perl libdbd-mysql-perl libdbd-sqlite3-perl liblwp-protocol-https-perl libnet-patricia-perl libnet-cidr-lite-perl libberkeleydb-perl libperl-critic-perl make gcc libextutils-modulemaker-perl libxml-libxml-perl libfile-sharedir-install-perl libdbix-simple-perl libemail-mime-perl libemail-sender-perl libnet-idn-encode-perl libregexp-common-perl libtest-file-sharedir-perl libnet-smtps-perl libnet-imap-simple-perl libtest-pod-perl libmaxmind-db-reader-xs-perl tesseract-ocr cpanminus
+          cpanm -n Mail::DMARC::PurePerl BSD::Resource IP::Country::DB_File IP::Country::Fast
+          hash -r
+          cpanm --installdeps --notest .  || echo "warn: errors installing required cpan modules have been ignored"
+      - name: Setup SpamAssassin
+        run: perl Makefile.PL CONTACT_ADDRESS="GitHub Actions" PERL_TAINT=no
+      - name: Compile SpamAssassin
+        run: make
+      - name: fix permissions
+        run: sudo chmod o-w /usr/local/bin
+      - name: enable net tests
+        run: cat t/config.dist | sed 's/run_net_tests=n/run_net_tests=y/' > t/config.tmp && mv t/config.tmp t/config.dist
+      - name: Regression tests
+        run: make test
+      - name: Show content of log files on Linux
+        if: ${{ failure() && startsWith( matrix.runner, 'ubuntu-' )  }}
+        run: cat /home/runner/.cpanm/work/*/build.log
